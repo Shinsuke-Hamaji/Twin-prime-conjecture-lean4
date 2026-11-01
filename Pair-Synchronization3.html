@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Odd Pair Sync Viewer</title>
+<style>
+body { font-family: sans-serif; background: #f5f7fb; margin: 0; padding: 15px; color: #333; font-size: 14px; }
+.container { max-width: 850px; margin: 0 auto; background: white; padding: 20px; border-radius: 12px;
+box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+h1 { margin-top: 0; color: #111; font-size: 18px; border-bottom: 2px solid #eaeef5; padding-bottom: 10px; }
+.control-panel { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px;
+margin-bottom: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.control-item { display: flex; align-items: center; gap: 4px; }
+label { font-size: 12px; font-weight: bold; color: #475569; }
+select, input[type="number"] { padding: 5px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; font-weight: bold; }
+button { background: #0066cc; color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer; }
+button:hover { background: #0052a3; }
+.canvas-container { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 5px; display: flex; justify-content: center; }
+canvas { background: #fff; max-width: 100%; height: auto; }
+</style>
+</head>
+
+<body>
+<div class="container">
+<h1>Odd Pair (2n-3 ~ 3) Add or Sub (Even = Odd<sub>2</sub> ± Odd<sub>1</sub>) Synchronization Viewer</h1>
+
+<div class="control-panel">
+<div class="control-item">
+<label>2n:</label>
+<input type="number" id="maxEven" value="2000" min="20" max="20000" step="2" style="width: 75px;">
+</div>
+
+<div class="control-item">
+<label>Y Scale:</label>
+<input type="number" id="yScale" value="300" min="10" max="100000" step="10" style="width: 70px;">
+</div>
+
+<div class="control-item">
+<label>Diff:</label>
+<select id="diffVal">
+<option value="all">All</option>
+<option value="0">0</option>
+<option value="2">2</option>
+<option value="4">4</option>
+<option value="6">6</option>
+<option value="8">8</option>
+<option value="10">10</option>
+<option value="12">12</option>
+<option value="14">14</option>
+<option value="16">16</option>
+<option value="18">18</option>
+<option value="20">20</option>
+</select>
+</div>
+
+<div class="control-item">
+<label>Mode:</label>
+<select id="sumMode">
+<option value="add">Even = Odd<sub>2</sub> + Odd<sub>1</sub> (6 ~ 4n−6)</option>
+<option value="sub">Even = Odd<sub>2</sub> − Odd<sub>1</sub> (0 ~ 2n−6)</option>
+</select>
+</div>
+
+<div class="control-item">
+<label>Items:</label>
+<select id="itemMode">
+<option value="all3">Cp + Pp + Mp</option>
+<option value="hpmp">Hp + Mp</option>
+<option value="cp">Cp only</option>
+<option value="pp">Pp only</option>
+<option value="mp">Mp only</option>
+</select>
+</div>
+
+<button onclick="runCalculation()">Render</button>
+</div>
+
+<div class="canvas-container">
+<canvas id="graphCanvas" width="810" height="420"></canvas>
+</div>
+</div>
+
+<script>
+function runCalculation() {
+let maxEv = parseInt(document.getElementById('maxEven').value);
+if (maxEv % 2 !== 0) maxEv--;
+
+const mode = document.getElementById('sumMode').value;
+const diffValStr = document.getElementById('diffVal').value;
+const d = (diffValStr === "all" || diffValStr === "0") ? 0 : parseInt(diffValStr);
+
+// エラトステネスの篩による高速素数テーブル
+let maxCheck = maxEv * 2 + 100;
+let primeTable = new Uint8Array(maxCheck);
+primeTable.fill(1);
+primeTable[0] = primeTable[1] = 0;
+for (let p = 2; p * p < maxCheck; p++) {
+if (primeTable[p]) {
+for (let i = p * p; i < maxCheck; i += p) primeTable[i] = 0;
+}
+}
+
+// Diff基準に基づく奇数 u の厳密分類
+function checkType(u) {
+if (d === 0) {
+return primeTable[u] ? 'P' : 'C';
+} else {
+let p1 = primeTable[u];
+let p2 = primeTable[u + d];
+if (p1 && p2) return 'P';
+if (!p1 && !p2) return 'C';
+return 'M';
+}
+}
+
+let ppHist = {}, ccHist = {}, mpHist = {}, hpHist = {};
+
+for (let k = 3; k <= maxEv - 3; k += 2) {
+let typeK = checkType(k);
+for (let m = k; m <= maxEv - 3; m += 2) {
+let typeM = checkType(m);
+let sum = (mode === "add") ? k + m : Math.abs(k - m);
+let weight = (mode === "add") ? ((k === m) ? 0.5 : 1.0) : ((k === m) ? 0.5 : 1.0);
+
+if (typeK === 'P' && typeM === 'P') {
+ppHist[sum] = (ppHist[sum] || 0) + weight;
+} else if (typeK === 'C' && typeM === 'C') {
+ccHist[sum] = (ccHist[sum] || 0) + weight;
+} else if ((typeK === 'P' && typeM === 'C') || (typeK === 'C' && typeM === 'P')) {
+mpHist[sum] = (mpHist[sum] || 0) + weight;
+}
+}
+}
+
+for (let s in ccHist) hpHist[s] = (hpHist[s] || 0) + ccHist[s];
+for (let s in ppHist) hpHist[s] = (hpHist[s] || 0) + (ppHist[s] || 0);
+
+let a = 0, b = 0;
+for (let k = 3; k <= maxEv - 3; k += 2) {
+let t = checkType(k);
+if (t === 'P') a++;
+else if (t === 'C') b++;
+}
+let denom = a + b;
+
+let sqA = denom ? (a * a) / (2 * denom) : 0;
+let sqB = denom ? (b * b) / (2 * denom) : 0;
+let sqAB = denom ? (a * a + b * b) / (2 * denom) : 0;
+let sq2ab = denom ? (2 * a * b) / (2 * denom) : 0;
+
+// C3 (3の倍数合成数対) の基準値: n/6 - 1
+let nVal = maxEv / 2;
+let c3Base = (nVal >= 6) ? (nVal / 6 - 1) : 0;
+
+// Cx = Cp - C3 の基準値 (b^2 / [2(a+b)] - C3)
+let cxBase = Math.max(0, sqB - c3Base);
+
+let minSum = (mode === "add") ? 6 : 0;
+let maxSum = (mode === "add") ? 2 * maxEv - 6 : maxEv - 6;
+
+let sums = [];
+for (let s = minSum; s <= maxSum; s += 2) sums.push(s);
+
+drawGraph(sums, ppHist, ccHist, mpHist, hpHist, sqA, sqB, sqAB, sq2ab, c3Base, cxBase, mode);
+}
+
+function drawGraph(sums, ppHist, ccHist, mpHist, hpHist, sqA, sqB, sqAB, sq2ab, c3Base, cxBase, mode) {
+const canvas = document.getElementById('graphCanvas');
+const ctx = canvas.getContext('2d');
+ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+const padding = { top: 55, right: 30, bottom: 40, left: 50 };
+const graphWidth = canvas.width - padding.left - padding.right;
+const graphHeight = canvas.height - padding.top - padding.bottom;
+
+let yScaleInput = parseFloat(document.getElementById('yScale').value);
+let yMax = (yScaleInput && yScaleInput > 0) ? yScaleInput : 300;
+
+function getX(v) {
+return padding.left + ((v - sums[0]) / (sums[sums.length - 1] - sums[0])) * graphWidth;
+}
+function getY(v) {
+return padding.top + graphHeight - (v / yMax) * graphHeight;
+}
+
+ctx.strokeStyle = '#e2e8f0';
+ctx.lineWidth = 1;
+let step = Math.ceil(yMax / 10);
+for (let y = 0; y <= yMax; y += step) {
+let yy = getY(y);
+ctx.beginPath();
+ctx.moveTo(padding.left, yy);
+ctx.lineTo(canvas.width - padding.right, yy);
+ctx.stroke();
+ctx.fillStyle = '#64748b';
+ctx.font = '10px sans-serif';
+ctx.fillText(y.toFixed(1), padding.left - 38, yy + 4);
+}
+
+let xLabelInterval = Math.ceil(sums.length / 10);
+for (let i = 0; i < sums.length; i++) {
+if (i % xLabelInterval === 0 || i === sums.length - 1) {
+let x = getX(sums[i]);
+ctx.fillStyle = '#64748b';
+ctx.font = '10px sans-serif';
+ctx.fillText(sums[i], x - 10, canvas.height - padding.bottom + 15);
+}
+}
+
+const itemMode = document.getElementById('itemMode').value;
+
+function drawLine(hist, color) {
+ctx.strokeStyle = color;
+ctx.lineWidth = 1.5;
+ctx.setLineDash([]);
+ctx.beginPath();
+ctx.moveTo(getX(sums[0]), getY(hist[sums[0]] || 0));
+for (let i = 1; i < sums.length; i++) {
+let dz = hist[sums[i]] || 0;
+ctx.lineTo(getX(sums[i]), getY(dz));
+}
+ctx.stroke();
+}
+
+if (itemMode === "all3") {
+drawLine(ccHist, '#FF00FF');
+drawLine(ppHist, '#00CCFF');
+drawLine(mpHist, '#006400');
+}
+if (itemMode === "hpmp") {
+drawLine(hpHist, '#800080');
+drawLine(mpHist, '#006400');
+}
+if (itemMode === "cp") drawLine(ccHist, '#FF00FF');
+if (itemMode === "pp") drawLine(ppHist, '#00CCFF');
+if (itemMode === "mp") drawLine(mpHist, '#006400');
+
+function dashedLine(value, color) {
+ctx.strokeStyle = color;
+ctx.lineWidth = 2;
+ctx.setLineDash([6, 4]);
+ctx.beginPath();
+ctx.moveTo(getX(sums[0]), getY(value));
+ctx.lineTo(getX(sums[sums.length - 1]), getY(value));
+ctx.stroke();
+ctx.setLineDash([]);
+}
+
+// 基準線の描画
+dashedLine(sqA, '#0000FF');    // Pa (青)
+dashedLine(sqB, '#FF0000');    // Cp (赤)
+dashedLine(sqAB, '#AA00AA');   // Hp (紫)
+dashedLine(sq2ab, '#00AA00');  // Mp (緑)
+dashedLine(c3Base, '#D97706'); // C3 (橙)
+dashedLine(cxBase, '#8B0000'); // Cx = Cp - C3 (暗赤/ワインレッド)
+
+const solidLegend = [
+    { label: 'Pp', color: '#00CCFF' },
+    { label: 'Cp', color: '#FF00FF' },
+    { label: 'Hp', color: '#800080' },
+    { label: 'Mp', color: '#006400' }
+];
+
+const dashedLegend = [
+{ label: 'a²/[2(a+b)]', color: '#0000FF' },
+{ label: 'b²/[2(a+b)]', color: '#FF0000' },
+{ label: '(a²+b²)/[2(a+b)]', color: '#AA00AA' },
+{ label: 'ab/[a+b]', color: '#00AA00' },
+{ label: 'C3 (n/6-1)', color: '#D97706' },
+{ label: 'Cx (Cp-C3)', color: '#8B0000' }
+];
+
+let lx = padding.left + 5;
+let ly = 5;
+
+solidLegend.forEach(item => {
+ctx.strokeStyle = item.color;
+ctx.lineWidth = 3;
+ctx.setLineDash([]);
+ctx.beginPath();
+ctx.moveTo(lx, ly);
+ctx.lineTo(lx + 25, ly);
+ctx.stroke();
+ctx.fillStyle = '#333';
+ctx.font = 'bold 10px sans-serif';
+ctx.fillText(item.label, lx + 30, ly + 4);
+lx += 110;
+});
+
+lx = padding.left + 5;
+ly = 25;
+
+dashedLegend.forEach(item => {
+ctx.strokeStyle = item.color;
+ctx.lineWidth = 3;
+ctx.setLineDash([6, 4]);
+ctx.beginPath();
+ctx.moveTo(lx, ly);
+ctx.lineTo(lx + 25, ly);
+ctx.stroke();
+ctx.setLineDash([]);
+ctx.fillStyle = '#333';
+ctx.font = 'bold 10px sans-serif';
+ctx.fillText(item.label, lx + 30, ly + 4);
+lx += 115;
+});
+
+let currentDiff = document.getElementById('diffVal').value;
+ctx.fillStyle = '#111';
+ctx.font = 'bold 11px sans-serif';
+ctx.fillText(`a: D-prime pairs, b: D-composite pairs | Line View | Diff = ${currentDiff} | Y Scale = ${yMax}`, canvas.width / 2 - 220, canvas.height - 5);
+}
+
+window.onload = runCalculation;
+</script>
+
+</body>
+</html>
